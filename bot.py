@@ -1,15 +1,17 @@
 import os
 import sqlite3
 import secrets
+from aiohttp import web
 from pyrogram import Client, filters
 
 # --- CONFIGURATION ---
-API_ID = 26386777
-API_HASH = "ee7bbb1078fa4aaf4c1b6e9cfeec3ca1"
-BOT_TOKEN = "8836438619:AAGJqaa65ww-Bak2ls60IlF1SE_vp8juyXQ"
-BOT_USERNAME = "Filestore_kingx_bot"
-DB_CHANNEL_ID = -1003486068610 
-BOT_OWNER = 910090161
+API_ID = int(os.environ.get("API_ID", 26386777))
+API_HASH = os.environ.get("API_HASH", "ee7bbb1078fa4aaf4c1b6e9cfeec3ca1")
+BOT_TOKEN = os.environ.get("BOT_TOKEN", "8836438619:AAGJqaa65ww-Bak2ls60IlF1SE_vp8juyXQ")
+BOT_USERNAME = os.environ.get("BOT_USERNAME", "Filestore_kingx_bot")
+DB_CHANNEL_ID = int(os.environ.get("DB_CHANNEL", -1003486068610))
+BOT_OWNER = int(os.environ.get("BOT_OWNER", 910090161))
+PORT = int(os.environ.get("PORT", 8000))
 
 # Local Database
 conn = sqlite3.connect('batch_data.db', check_same_thread=False)
@@ -35,16 +37,16 @@ async def start_cmd(client, message):
                 try:
                     await client.copy_message(message.chat.id, DB_CHANNEL_ID, msg_id)
                 except Exception as e:
-                    await message.reply_text(f"❌ Error: {e}")
+                    await message.reply_text(f"❌ Error on msg {msg_id}: {e}")
         else:
             await message.reply_text("❌ Link galat hai ya expire ho gaya hai.")
     else:
-        await message.reply_text(f"👋 Welcome! /batch type karke files bhejein.")
+        await message.reply_text(f"👋 Welcome! /batch type karke naya batch banayein.")
 
 @app.on_message(filters.command("batch") & filters.private)
 async def batch_cmd(client, message):
     user_data[message.from_user.id] = []
-    await message.reply_text("📦 **Batch Mode Active!**\n\nFiles ek-ek karke bhejein. Phir `/done` likhein.")
+    await message.reply_text("📦 **Batch Mode Active!**\n\nFiles bhejte rahein (ek-ek karke). Khatam hone par `/done` likhein.")
 
 @app.on_message(filters.private & ~filters.command(["start", "batch", "done", "clear"]))
 async def collect_files(client, message):
@@ -53,7 +55,7 @@ async def collect_files(client, message):
         try:
             msg = await message.copy(DB_CHANNEL_ID)
             user_data[user_id].append(msg.id)
-            await message.reply_text(f"✅ Saved! Total Files: {len(user_data[user_id])}")
+            await message.reply_text(f"✅ Saved! Total: {len(user_data[user_id])}")
         except Exception as e:
             await message.reply_text(f"❌ Error: {e}")
 
@@ -65,18 +67,29 @@ async def done_cmd(client, message):
         unique_key = "KEY_" + secrets.token_hex(4) 
         cursor.execute("INSERT INTO batches VALUES (?, ?, ?)", (unique_key, file_ids[0], file_ids[-1]))
         conn.commit()
-        
         batch_link = f"https://t.me/{BOT_USERNAME}?start={unique_key}"
-        await message.reply_text(f"🎉 **Aapka Unique Batch Link:**\n\n`{batch_link}`")
+        await message.reply_text(f"🎉 **Aapka Batch Link:**\n\n`{batch_link}`")
         del user_data[user_id]
     else:
         await message.reply_text("❌ Pehle `/batch` karke files bhejein.")
 
-@app.on_message(filters.command("clear") & filters.private)
-async def clear_db(client, message):
-    if message.from_user.id == BOT_OWNER:
-        cursor.execute("DELETE FROM batches")
-        conn.commit()
-        await message.reply_text("🧹 Database khali kar diya gaya hai!")
+# --- DUMMY WEB SERVER FOR KOYEB ---
+async def web_handler(request):
+    return web.Response(text="Bot is running 24/7!")
 
-app.run()
+async def main():
+    server = web.Application()
+    server.router.add_get("/", web_handler)
+    runner = web.AppRunner(server)
+    await runner.setup()
+    site = web.TCPSite(runner, "0.0.0.0", PORT)
+    await site.start()
+    
+    await app.start()
+    print("Bot started successfully!")
+    await web.Event().wait()
+
+if __name__ == "__main__":
+    import asyncio
+    asyncio.run(main())
+  
