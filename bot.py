@@ -8,7 +8,8 @@ from pyrogram.errors import UserNotParticipant
 # --- CONFIGURATION ---
 API_ID = int(os.environ.get("API_ID", 26386777))
 API_HASH = os.environ.get("API_HASH", "ee7bbb1078fa4aaf4c1b6e9cfeec3ca1")
-BOT_TOKEN = os.environ.get("BOT_TOKEN", "8836438619:AAGJqaa65ww-Bak2ls60IlF1SE_vp8juyXQ")
+# Naya Token yahan update kar diya hai
+BOT_TOKEN = os.environ.get("BOT_TOKEN", "8836438619:AAEm-4dKhJlKsttcW09xLIS_a6SWCgpZDDk")
 BOT_USERNAME = os.environ.get("BOT_USERNAME", "Filestore_kingx_bot")
 
 # Storage Channel
@@ -72,7 +73,7 @@ async def start_cmd(client, message):
         )
         return
 
-    # 2. File Delivery (Available for everyone with a valid link)
+    # 2. File Delivery
     if len(text) > 1 and text[1].startswith("KEY_"):
         unique_key = text[1]
         cursor.execute("SELECT start_id, end_id FROM batches WHERE unique_key=?", (unique_key,))
@@ -87,7 +88,7 @@ async def start_cmd(client, message):
                     await message.reply_text(f"❌ Error on message {msg_id}: {e}")
         return
 
-    # 3. Normal /start message
+    # 3. Start Message
     if message.from_user.id == ADMIN_ID:
         await message.reply_text(
             "👋 **Welcome Admin!**\n\nUse the buttons below to create batch links 👇",
@@ -149,5 +150,5 @@ async def collect_files(client, message):
             await message.reply_text(f"❌ Error saving file: {e}")
 
 if __name__ == "__main__":
-    print("Bot is running with Admin-only access...")
+    print("Bot is live with new token!")
     app.run()
