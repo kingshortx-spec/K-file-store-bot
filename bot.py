@@ -11,22 +11,27 @@ API_HASH = os.environ.get("API_HASH", "ee7bbb1078fa4aaf4c1b6e9cfeec3ca1")
 BOT_TOKEN = os.environ.get("BOT_TOKEN", "8836438619:AAEm-4dKhJlKsttcW09xLIS_a6SWCgpZDDk")
 BOT_USERNAME = os.environ.get("BOT_USERNAME", "Filestore_kingx_bot")
 
+# Storage Channel
 DB_CHANNEL_ID = int(os.environ.get("DB_CHANNEL", -1003486068610))
+
+# 📢 Force Subscribe Channel Details
 FSUB_CHANNEL = os.environ.get("FSUB_CHANNEL", "-1003379165829")
 FSUB_LINK = os.environ.get("FSUB_LINK", "https://t.me/kingx_update")
-ADMIN_ID = int(os.environ.get("BOT_OWNER", 910090161))
 
+BOT_OWNER = int(os.environ.get("BOT_OWNER", 910090161))
+
+# Local Database (SQLite)
 conn = sqlite3.connect('batch_data.db', check_same_thread=False)
 cursor = conn.cursor()
 cursor.execute('''CREATE TABLE IF NOT EXISTS batches 
                   (unique_key TEXT PRIMARY KEY, start_id INTEGER, end_id INTEGER)''')
 conn.commit()
 
-# Fresh Session Name to bypass old session lock
-app = Client("BatchBotV2", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
+app = Client("BatchBotPhone", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
 user_data = {}
 
-ADMIN_KEYBOARD = ReplyKeyboardMarkup(
+# Keyboard Menu
+MAIN_KEYBOARD = ReplyKeyboardMarkup(
     [
         [KeyboardButton("📦 Create Batch"), KeyboardButton("✅ Done Batch")],
         [KeyboardButton("🔄 Restart Bot")]
@@ -34,6 +39,7 @@ ADMIN_KEYBOARD = ReplyKeyboardMarkup(
     resize_keyboard=True
 )
 
+# Force Subscribe Check
 async def check_fsub(client, message):
     if not FSUB_CHANNEL:
         return True
@@ -52,6 +58,7 @@ async def check_fsub(client, message):
 async def start_cmd(client, message):
     text = message.text.split() if message.text else []
 
+    # 1. Force Subscribe Check
     is_subscribed = await check_fsub(client, message)
     if not is_subscribed:
         join_button = InlineKeyboardMarkup([
@@ -64,46 +71,35 @@ async def start_cmd(client, message):
         )
         return
 
+    # 2. File Delivery
     if len(text) > 1 and text[1].startswith("KEY_"):
         unique_key = text[1]
         cursor.execute("SELECT start_id, end_id FROM batches WHERE unique_key=?", (unique_key,))
         row = cursor.fetchone()
         if row:
             start_id, end_id = row
-            await message.reply_text("📥 **Sending your files...**")
+            await message.reply_text("📥 **Sending your files...**", reply_markup=MAIN_KEYBOARD)
             for msg_id in range(start_id, end_id + 1):
                 try:
                     await client.copy_message(message.chat.id, DB_CHANNEL_ID, msg_id)
                 except Exception as e:
                     await message.reply_text(f"❌ Error on message {msg_id}: {e}")
-        return
-
-    if message.from_user.id == ADMIN_ID:
-        await message.reply_text(
-            "👋 **Welcome Admin!**\n\nUse the buttons below to create batch links 👇",
-            reply_markup=ADMIN_KEYBOARD
-        )
     else:
-        await message.reply_text("👋 **Welcome to File Store Bot!**\n\nClick on any shared batch link to get your files.")
+        await message.reply_text(
+            "👋 **Welcome to File Store Bot!**\n\nUse the buttons below to create a batch 👇",
+            reply_markup=MAIN_KEYBOARD
+        )
 
-@app.on_message((filters.command("batch") | filters.regex("^📦 Create Batch")) & filters.private)
+@app.on_message(filters.command("batch") | filters.regex("^📦 Create Batch") & filters.private)
 async def batch_cmd(client, message):
-    if message.from_user.id != ADMIN_ID:
-        await message.reply_text("⛔ **Access Denied!** Only the admin can use this command.")
-        return
-
     user_data[message.from_user.id] = []
     await message.reply_text(
         "📦 **Batch Mode Activated!**\n\nSend all the files you want to include. Once done, tap **[✅ Done Batch]**.",
-        reply_markup=ADMIN_KEYBOARD
+        reply_markup=MAIN_KEYBOARD
     )
 
-@app.on_message((filters.command("done") | filters.regex("^✅ Done Batch")) & filters.private)
+@app.on_message(filters.command("done") | filters.regex("^✅ Done Batch") & filters.private)
 async def done_cmd(client, message):
-    if message.from_user.id != ADMIN_ID:
-        await message.reply_text("⛔ **Access Denied!** Only the admin can use this command.")
-        return
-
     user_id = message.from_user.id
     if user_id in user_data and user_data[user_id]:
         file_ids = user_data[user_id]
@@ -115,17 +111,14 @@ async def done_cmd(client, message):
         batch_link = f"https://t.me/{BOT_USERNAME}?start={unique_key}"
         await message.reply_text(
             f"🎉 **Your Batch Link is Ready:**\n\n`{batch_link}`",
-            reply_markup=ADMIN_KEYBOARD
+            reply_markup=MAIN_KEYBOARD
         )
         del user_data[user_id]
     else:
-        await message.reply_text("❌ Please tap **[📦 Create Batch]** and forward files first.", reply_markup=ADMIN_KEYBOARD)
+        await message.reply_text("❌ Please tap **[📦 Create Batch]** and forward files first.", reply_markup=MAIN_KEYBOARD)
 
 @app.on_message(filters.private & ~filters.command(["start", "batch", "done", "clear"]) & ~filters.regex("^(📦 Create Batch|✅ Done Batch|🔄 Restart Bot)$"))
 async def collect_files(client, message):
-    if message.from_user.id != ADMIN_ID:
-        return
-
     user_id = message.from_user.id
     if user_id in user_data:
         try:
@@ -137,4 +130,3 @@ async def collect_files(client, message):
 
 if __name__ == "__main__":
     app.run()
-  
