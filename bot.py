@@ -1,6 +1,7 @@
 import os
 import sqlite3
 import secrets
+import asyncio
 from pyrogram import Client, filters
 from pyrogram.types import ReplyKeyboardMarkup, KeyboardButton
 
@@ -10,7 +11,7 @@ API_HASH = os.environ.get("API_HASH", "ee7bbb1078fa4aaf4c1b6e9cfeec3ca1")
 BOT_TOKEN = os.environ.get("BOT_TOKEN", "8836438619:AAEm-4dKhJlKsttcW09xLIS_a6SWCgpZDDk")
 BOT_USERNAME = os.environ.get("BOT_USERNAME", "Filestore_kingx_bot")
 DB_CHANNEL_ID = int(os.environ.get("DB_CHANNEL", -1003486068610))
-BOT_OWNER = int(os.environ.get("BOT_OWNER", 910090161)) # Aapki ID
+BOT_OWNER = int(os.environ.get("BOT_OWNER", 910090161))
 
 # Local Database
 conn = sqlite3.connect('batch_data.db', check_same_thread=False)
@@ -21,6 +22,7 @@ conn.commit()
 
 app = Client("BatchBotPhone", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
 user_data = {}
+save_lock = asyncio.Lock()
 
 # Keyboard Menu
 ADMIN_KEYBOARD = ReplyKeyboardMarkup(
@@ -35,7 +37,6 @@ ADMIN_KEYBOARD = ReplyKeyboardMarkup(
 async def start_cmd(client, message):
     text = message.text.split() if message.text else []
     
-    # File Delivery (Sabke liye)
     if len(text) > 1 and text[1].startswith("KEY_"):
         unique_key = text[1]
         cursor.execute("SELECT start_id, end_id FROM batches WHERE unique_key=?", (unique_key,))
@@ -51,13 +52,11 @@ async def start_cmd(client, message):
         else:
             await message.reply_text("❌ Invalid link or link has expired.")
     else:
-        # Welcome message
         if message.from_user.id == BOT_OWNER:
             await message.reply_text("👋 Hello Admin!\n\nUse the buttons below.", reply_markup=ADMIN_KEYBOARD)
         else:
             await message.reply_text("👋 Hello! Welcome to File Store Bot.")
 
-# Admin-Only Batch Commands
 @app.on_message((filters.command("batch") | filters.regex("^📦 Create Batch")) & filters.private)
 async def batch_cmd(client, message):
     if message.from_user.id != BOT_OWNER:
@@ -90,7 +89,7 @@ async def done_cmd(client, message):
     else:
         await message.reply_text("❌ First tap [📦 Create Batch] and forward files.")
 
-# File collection
+# Collect Files with Lock to prevent duplicate counts
 @app.on_message(filters.private & ~filters.command(["start", "batch", "done", "clear"]) & ~filters.regex("^(📦 Create Batch|✅ Done Batch|🔄 Restart Bot)$"))
 async def collect_files(client, message):
     if message.from_user.id != BOT_OWNER:
@@ -98,14 +97,15 @@ async def collect_files(client, message):
         
     user_id = message.from_user.id
     if user_id in user_data:
-        try:
-            msg = await message.copy(DB_CHANNEL_ID)
-            user_data[user_id].append(msg.id)
-            await message.reply_text(f"✅ Saved! Total Files: **{len(user_data[user_id])}**")
-        except Exception as e:
-            await message.reply_text(f"❌ Error saving file: {e}")
+        async with save_lock:
+            try:
+                msg = await message.copy(DB_CHANNEL_ID)
+                user_data[user_id].append(msg.id)
+                current_count = len(user_data[user_id])
+                await message.reply_text(f"✅ Saved! Total Files: **{current_count}**")
+            except Exception as e:
+                await message.reply_text(f"❌ Error saving file: {e}")
 
 if __name__ == "__main__":
     print("Bot is starting...")
     app.run()
-  
