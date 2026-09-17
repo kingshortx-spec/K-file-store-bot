@@ -14,7 +14,6 @@ BOT_OWNER = int(os.environ.get("BOT_OWNER", 910090161))
 app = Client("BatchBotPhone", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
 user_data = {}
 
-# Keyboard Menu
 ADMIN_KEYBOARD = ReplyKeyboardMarkup(
     [
         [KeyboardButton("📦 Create Batch"), KeyboardButton("✅ Done Batch")],
@@ -23,7 +22,6 @@ ADMIN_KEYBOARD = ReplyKeyboardMarkup(
     resize_keyboard=True
 )
 
-# Helper functions for Direct Link encoding/decoding
 def encode_batch(start_id, end_id):
     string_data = f"{start_id}_{end_id}"
     b64_encoded = base64.urlsafe_b64encode(string_data.encode("ascii")).decode("ascii")
@@ -43,7 +41,6 @@ def decode_batch(b64_string):
 async def start_cmd(client, message):
     text = message.text.split() if message.text else []
 
-    # File Fetching Logic (Direct Link)
     if len(text) > 1 and text[1].startswith("BATCH_"):
         encoded_data = text[1].replace("BATCH_", "")
         start_id, end_id = decode_batch(encoded_data)
@@ -58,13 +55,11 @@ async def start_cmd(client, message):
         else:
             await message.reply_text("❌ Invalid link structure.")
     else:
-        # Welcome message
         if message.from_user.id == BOT_OWNER:
             await message.reply_text("👋 Hello Admin!\n\nUse the buttons below.", reply_markup=ADMIN_KEYBOARD)
         else:
             await message.reply_text("👋 Hello! Welcome to File Store Bot.")
 
-# Admin-Only Batch Commands
 @app.on_message((filters.command("batch") | filters.regex("^📦 Create Batch")) & filters.private)
 async def batch_cmd(client, message):
     if message.from_user.id != BOT_OWNER:
@@ -86,7 +81,7 @@ async def done_cmd(client, message):
     if user_id in user_data and user_data[user_id]:
         file_ids = user_data[user_id]
         encoded_key = encode_batch(file_ids[0], file_ids[-1])
-        batch_link = f"https://t.me/{BOT_USERNAME}?start=BATCH_{encoded_key}"
+        batch_link = f"https://telegram.me/{BOT_USERNAME}?start=BATCH_{encoded_key}"
         
         await message.reply_text(
             f"🎉 **Permanent Batch Link Ready:**\n\n`{batch_link}`\n\n*(This link is permanent and will NEVER expire even if hosting changes)*",
@@ -96,7 +91,6 @@ async def done_cmd(client, message):
     else:
         await message.reply_text("❌ First tap [📦 Create Batch] and forward files.")
 
-# Collect Files
 @app.on_message(filters.private & ~filters.command(["start", "batch", "done", "clear"]) & ~filters.regex("^(📦 Create Batch|✅ Done Batch|🔄 Restart Bot)$"))
 async def collect_files(client, message):
     if message.from_user.id != BOT_OWNER:
@@ -115,3 +109,4 @@ async def collect_files(client, message):
 if __name__ == "__main__":
     print("Bot is running...")
     app.run()
+    
