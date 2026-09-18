@@ -1,6 +1,7 @@
 import asyncio
 import base64
 import os
+import re
 from pyrogram import Client, filters
 from pyrogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
 from pyrogram.errors import UserNotParticipant, FloodWait
@@ -25,21 +26,32 @@ bot = Client(
 ADMIN_STATES = {}
 
 # --- HELPER FUNCTIONS ---
+def natural_sort_key(s: str):
+    """Numbers ko natural sequence (1, 2, 10...) me sort karne ke liye"""
+    return [int(text) if text.isdigit() else text.lower() for text in re.split(r'(\d+)', s)]
+
+def extract_file_title(message: Message) -> str:
+    """Message se file ka naam, audio title ya caption nikalne ke liye"""
+    if message.audio:
+        return message.audio.title or message.audio.file_name or message.caption or ""
+    elif message.document:
+        return message.document.file_name or message.caption or ""
+    elif message.video:
+        return message.video.file_name or message.caption or ""
+    return message.caption or str(message.id)
+
 def encode_ids(id_list: list) -> str:
-    # Saari exact IDs ko comma separated string banakar base64 encode karte hain
     raw = ",".join(map(str, id_list))
     b64 = base64.urlsafe_b64encode(raw.encode()).decode().rstrip("=")
     return f"LIST_{b64}"
 
 def decode_ids(encoded: str):
     try:
-        # Dono support karega: Naya LIST format bhi aur purana BATCH format bhi
         if encoded.startswith("LIST_"):
             b64 = encoded.replace("LIST_", "")
             padding = "=" * (-len(b64) % 4)
             raw = base64.urlsafe_b64decode((b64 + padding).encode()).decode()
             return [int(x) for x in raw.split(",")]
-        
         elif encoded.startswith("BATCH_"):
             b64 = encoded.replace("BATCH_", "")
             padding = "=" * (-len(b64) % 4)
@@ -95,21 +107,23 @@ async def start_handler(client: Client, message: Message):
     text = message.text.split()
     param = text[1] if len(text) > 1 else ""
 
+    # Force Sub Check
     if not await is_subscribed(client, user_id):
         buttons = [
             [InlineKeyboardButton("📢 Join Channel", url=f"https://telegram.me/{FORCE_SUB_USERNAME}")],
             [InlineKeyboardButton("✅ I Have Joined", callback_data=f"checksub_{param}")]
         ]
         await message.reply(
-            "⚠️ **Access Denied!**\n\nFiles lene ke liye pehle update channel join karein, fir **I Have Joined** par click karein:",
+            "⚠️ **Access Denied!**\n\nFiles lene ke liye pehle update channel join karein, fir **I Have Joined** dabayein:",
             reply_markup=InlineKeyboardMarkup(buttons)
         )
         return
 
+    # Normal Admin / User Start
     if not param:
         if user_id in ADMINS:
             await message.reply(
-                "👋 Hello Admin! Naya link banane ke liye button dabayein:",
+                "👋 Hello Admin! Naya Batch banane ke liye button dabayein:",
                 reply_markup=InlineKeyboardMarkup([
                     [InlineKeyboardButton("📦 Create Batch", callback_data="make_batch")]
                 ])
@@ -118,6 +132,7 @@ async def start_handler(client: Client, message: Message):
             await message.reply("👋 Welcome! Send me a valid link to get files.")
         return
 
+    # Link Processing
     file_ids = decode_ids(param)
     if not file_ids:
         await message.reply("❌ Invalid ya corrupted link.")
@@ -157,10 +172,11 @@ async def cb_handler(client: Client, query: CallbackQuery):
         return
 
     if data == "make_batch":
-        ADMIN_STATES[user_id] = {"collecting": True, "ids": []}
+        ADMIN_STATES[user_id] = {"collecting": True, "items": []}
         await query.message.edit(
-            "📥 Ab aap files bhejein (jis order me bhejenge usi exact order me user ko milengi).\n\n"
-            "Saari files aane ke baad **Done Batch** dabayein.",
+            "📥 Ab aap files send/forward karein.\n\n"
+            "✨ **Auto-Sorting On:** Files kisi bhi aage-peeche order me aayengi, bot unhe title/episodes ke sequence (1, 2, 3...) me khud sort kar lega!\n\n"
+            "Saari files bhejne ke baad **Done Batch** dabayein.",
             reply_markup=InlineKeyboardMarkup([
                 [InlineKeyboardButton("✅ Done Batch", callback_data="done_batch")]
             ])
@@ -168,31 +184,46 @@ async def cb_handler(client: Client, query: CallbackQuery):
 
     elif data == "done_batch":
         state = ADMIN_STATES.get(user_id)
-        if not state or not state.get("ids"):
+        if not state or not state.get("items"):
             await query.message.edit("❌ Koi file receive nahi hui. Batch cancel.")
             ADMIN_STATES.pop(user_id, None)
             return
 
-        exact_ids = state["ids"]
-        encoded_str = encode_ids(exact_ids)
+        raw_items = state["items"]
+        
+        # Natural Name/Title ke hisab se sort karega (e.g. Ep 1865, Ep 1866 ya 1, 2, 3...)
+        sorted_items = sorted(raw_items, key=lambda x: natural_sort_key(x["title"]))
+        sorted_ids = [item["id"] for item in sorted_items]
+
+        encoded_str = encode_ids(sorted_ids)
         link = f"https://telegram.me/{client.me.username}?start={encoded_str}"
 
         await query.message.edit(
-            f"✅ **Perfect Link Ready!**\n\n"
-            f"📁 Total Files: `{len(exact_ids)}`\n"
+            f"✅ **Perfect Ordered Link Ready!**\n\n"
+            f"📁 Total Files: `{len(sorted_ids)}`\n"
+            f"🔢 Auto-sorted in exact (1, 2, 3...) order!\n"
             f"🔗 Link:\n`{link}`",
             disable_web_page_preview=True
         )
         ADMIN_STATES.pop(user_id, None)
 
-# --- FORWARD COLLECTOR ---
+# --- FORWARD & MESSAGE COLLECTOR ---
 @bot.on_message(filters.private & ~filters.command(["start"]))
 async def message_collector(client: Client, message: Message):
     user_id = message.from_user.id
     if user_id in ADMINS and ADMIN_STATES.get(user_id, {}).get("collecting"):
+        title = extract_file_title(message)
         forwarded = await message.copy(chat_id=DB_CHANNEL)
-        ADMIN_STATES[user_id]["ids"].append(forwarded.id)
-        await asyncio.sleep(0.4)
+        
+        ADMIN_STATES[user_id]["items"].append({
+            "id": forwarded.id,
+            "title": title
+        })
+        
+        count = len(ADMIN_STATES[user_id]["items"])
+        await message.reply(f"✅ Saved! Total Files: {count}")
+        await asyncio.sleep(0.3)
 
 if __name__ == "__main__":
     bot.run()
+            
